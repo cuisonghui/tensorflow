@@ -89,7 +89,7 @@ static Status ProcessMemoryTypes(
   }
   return Status::OK();
 }
-
+// 对于一张仅运行在device_type设备类型上的图g来说，如果它的某个边的源节点或者目的节点包含了非该设备上的内存，则返回错误
 Status ValidateMemoryTypes(const DeviceType& device_type, const Graph* g) {
   return ProcessMemoryTypes(
       device_type, g, [](const Edge* e, MemoryType sm, MemoryType dm) {
@@ -150,7 +150,7 @@ static Node* Recv(Graph* g, const string& tensor_name,
           .Finalize(g, &ret));
   return ret;
 }
-
+//通过插入合适的HostSend/Recv和Send/HostRecv的方式，对图g进行迭代，使得它的每条边的源和目的都与device_type相容
 Status EnsureMemoryTypes(const DeviceType& device_type,
                          const string& device_name, Graph* g) {
   struct Item {
@@ -211,7 +211,7 @@ Status EnsureMemoryTypes(const DeviceType& device_type,
 
   return ValidateMemoryTypes(device_type, g);
 }
-
+//获取节点n的第index个输出的内存类型
 Status MemoryTypeForOutput(const DeviceType& device_type, const Graph* g,
                            const Node* n, int index, MemoryType* memory_type) {
   MemoryTypeVector inp_mvec;

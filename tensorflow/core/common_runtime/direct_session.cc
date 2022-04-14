@@ -188,7 +188,7 @@ class DirectSessionFactory : public SessionFactory {
     }
     std::vector<std::unique_ptr<Device>> devices;
     TF_RETURN_IF_ERROR(DeviceFactory::AddDevices(
-        options, "/job:localhost/replica:0/task:0", &devices));
+        options, "/job:localhost/replica:0/task:0", &devices));// 添加本地设备信息
 
     DirectSession* session = new DirectSession(
         options, new StaticDeviceMgr(std::move(devices)), this);
@@ -424,7 +424,7 @@ Status DirectSession::Extend(GraphDef&& graph) {
   return ExtendLocked(std::move(graph));
 }
 
-Status DirectSession::ExtendLocked(GraphDef graph) {
+Status DirectSession::ExtendLocked(GraphDef graph) {// DirectSession::Create session创建时会调用此函数，new出execution_state_和flib_def_
   if (finalized_) {
     return errors::FailedPrecondition("Session has been finalized.");
   }
@@ -439,7 +439,7 @@ Status DirectSession::ExtendLocked(GraphDef graph) {
     options.device_set = &device_set_;
     options.session_options = &options_;
     options.session_handle = session_handle_;
-    TF_RETURN_IF_ERROR(GraphExecutionState::MakeForBaseGraph(
+    TF_RETURN_IF_ERROR(GraphExecutionState::MakeForBaseGraph( // new execution_state_
         std::move(graph), options, &execution_state_));
     graph_created_ = true;
   } else {
@@ -570,10 +570,10 @@ Status DirectSession::RunInternal(
   const bool inline_execution_requested =
       run_in_caller_thread_ || run_options.inter_op_thread_pool() == -1;
 
-  if (inline_execution_requested) {
+  if (inline_execution_requested) { // 目前广告侧推理使用此方式
     // We allow using the caller thread only when having a single executor
     // specified.
-    if (executors_and_keys->items.size() > 1) {
+    if (executors_and_keys->items.size() > 1) { // 什么情况下items会大于1? todo
       pool = thread_pools_[0].first;
     } else {
       VLOG(1) << "Executing Session::Run() synchronously!";
@@ -600,7 +600,7 @@ Status DirectSession::RunInternal(
 
   std::unique_ptr<RunHandler> handler;
   if (ShouldUseRunHandlerPool(run_options) &&
-      run_options.experimental().use_run_handler_pool()) {
+      run_options.experimental().use_run_handler_pool()) { // tf engine v2 会设置此选项
     VLOG(1) << "Using RunHandler to scheduler inter-op closures.";
     handler = GetOrCreateRunHandlerPool(options_)->Get(
         step_id, call_timeout,
@@ -650,7 +650,7 @@ Status DirectSession::RunInternal(
   args.step_container = &run_state.step_container;
   args.sync_on_finish = sync_on_finish_;
   args.user_intra_op_threadpool = threadpool_options.intra_op_threadpool;
-  args.run_all_kernels_inline = pool == nullptr;
+  args.run_all_kernels_inline = pool == nullptr; // 广告默认true
 
   const bool do_trace = (run_options.trace_level() > RunOptions::NO_TRACE);
 
@@ -833,11 +833,11 @@ Status DirectSession::Run(const RunOptions& run_options,
                           std::vector<Tensor>* outputs,
                           RunMetadata* run_metadata,
                           const thread::ThreadPoolOptions& threadpool_options) {
-  TF_RETURN_IF_ERROR(CheckNotClosed());
-  TF_RETURN_IF_ERROR(CheckGraphCreated("Run()"));
+  TF_RETURN_IF_ERROR(CheckNotClosed()); // 检测session状态是否正常
+  TF_RETURN_IF_ERROR(CheckGraphCreated("Run()")); // 检测graph是否构建
   direct_session_runs->GetCell()->IncrementBy(1);
 
-  // Extract the inputs names for this run of the session.
+  // Extract the inputs names for this run of the session.// 获取所有输入tensor的name
   std::vector<string> input_tensor_names;
   input_tensor_names.reserve(inputs.size());
   size_t input_size = 0;
@@ -855,7 +855,7 @@ Status DirectSession::Run(const RunOptions& run_options,
 
   TF_RETURN_IF_ERROR(GetOrCreateExecutors(input_tensor_names, output_names,
                                           target_nodes, &executors_and_keys,
-                                          &run_state_args));
+                                          &run_state_args));// 获取Executor，如果已经存在则直接获取，不存在则创建
   {
     mutex_lock l(collective_graph_key_lock_);
     collective_graph_key_ = executors_and_keys->collective_graph_key;
@@ -874,7 +874,7 @@ Status DirectSession::Run(const RunOptions& run_options,
       feed_args[executors_and_keys->input_name_to_index[it.first]] =
           tensor_from_handle;
     } else {
-      feed_args[executors_and_keys->input_name_to_index[it.first]] = it.second;
+      feed_args[executors_and_keys->input_name_to_index[it.first]] = it.second; // inputs vector<pair<string,tensor> ---> feed_args vector<tensor> (string<---> index关系存于input_name_to_index中)
     }
   }
   const Status s = call_frame.SetArgs(feed_args);
@@ -895,7 +895,7 @@ Status DirectSession::Run(const RunOptions& run_options,
                                  threadpool_options));
 
   // Receive outputs.
-  if (outputs) {
+  if (outputs) { // 获取计算图运行结果
     std::vector<Tensor> sorted_outputs;
     const Status s = call_frame.ConsumeRetvals(
         &sorted_outputs, /* allow_dead_tensors = */ false);
@@ -1287,7 +1287,7 @@ Status DirectSession::CheckFetch(const NamedTensorList& feeds,
   }
   return Status::OK();
 }
-
+// 重点函数
 Status DirectSession::CreateExecutors(
     const CallableOptions& callable_options,
     std::unique_ptr<ExecutorsAndKeys>* out_executors_and_keys,
@@ -1311,7 +1311,7 @@ Status DirectSession::CreateExecutors(
   ek->callable_options = callable_options;
 
   std::unordered_map<string, std::unique_ptr<Graph>> graphs;
-  TF_RETURN_IF_ERROR(CreateGraphs(
+  TF_RETURN_IF_ERROR(CreateGraphs(// todo
       options, &graphs, &func_info->flib_def, run_state_args, &ek->input_types,
       &ek->output_types, &ek->collective_graph_key));
 
@@ -1348,21 +1348,21 @@ Status DirectSession::CreateExecutors(
       /*parent=*/nullptr, session_metadata,
       Rendezvous::Factory{
           [](const int64, const DeviceMgr* device_mgr, Rendezvous** r) {
-            *r = new IntraProcessRendezvous(device_mgr);
+            *r = new IntraProcessRendezvous(device_mgr);// 进程内的 Send 和 Recv 节点通过 IntraProcessRendezvous 实现数据交换(?)
             return Status::OK();
           }}));
 
-  GraphOptimizer optimizer(optimizer_opts);
+  GraphOptimizer optimizer(optimizer_opts); // todo
   for (auto iter = graphs.begin(); iter != graphs.end(); ++iter) {
     const string& partition_name = iter->first;
     std::unique_ptr<Graph>& partition_graph = iter->second;
 
     Device* device;
-    TF_RETURN_IF_ERROR(device_mgr_->LookupDevice(partition_name, &device));
+    TF_RETURN_IF_ERROR(device_mgr_->LookupDevice(partition_name, &device));// 使用partition_name作为key，查询对应的device
 
     ek->items.resize(ek->items.size() + 1);
-    auto* item = &(ek->items.back());
-    auto lib = func_info->proc_flr->GetFLR(partition_name);
+    auto* item = &(ek->items.back()); // item结构PerPartitionExecutorsAndLib
+    auto lib = func_info->proc_flr->GetFLR(partition_name);// 通过partition_name获取对应的lib(FunctionLibraryRuntime)
     if (lib == nullptr) {
       return errors::Internal("Could not find device: ", partition_name);
     }
@@ -1379,8 +1379,8 @@ Status DirectSession::CreateExecutors(
           // NOTE(mrry): We must not share function kernels (implemented
           // using `CallOp`) between subgraphs, because `CallOp::handle_`
           // is tied to a particular subgraph. Even if the function itself
-          // is stateful, the `CallOp` that invokes it is not.
-          if (!OpSegment::ShouldOwnKernel(lib, props->node_def.op())) {
+          // is stateful, the `CallOp` that invokes it is not. 
+          if (!OpSegment::ShouldOwnKernel(lib, props->node_def.op())) {// 如果不需要拥有kernel(op def无状态)，那么就创建新kernel，还不太理解。
             return lib->CreateKernel(props, kernel);
           }
           auto create_fn = [lib, &props](OpKernel** kernel) {
@@ -1408,15 +1408,15 @@ Status DirectSession::CreateExecutors(
           debug_options, partition_graph.get(), params.device));
     }
 
-    TF_RETURN_IF_ERROR(EnsureMemoryTypes(DeviceType(device->device_type()),
+    TF_RETURN_IF_ERROR(EnsureMemoryTypes(DeviceType(device->device_type()),// 通过插入合适的HostSend/Recv和Send/HostRecv的方式，对图g进行迭代，使得它的每条边的源和目的都与device_type相容
                                          device->name(),
                                          partition_graph.get()));
 
     item->executor = nullptr;
     item->device = device;
     auto executor_type = options_.config.experimental().executor_type();
-    TF_RETURN_IF_ERROR(
-        NewExecutor(executor_type, params, *partition_graph, &item->executor));
+    TF_RETURN_IF_ERROR(// 根据partition_graph(分区图),executor_type等其他参数创建Executor
+        NewExecutor(executor_type, params, *partition_graph, &item->executor)); // 依次调用executor.cc的NewLocalExecutor和ExecutorImpl->Initialize方法。其中，在Initialize方法中完成op kernel的创建赋值 (ImmutableExecutorState::Initialize)
     if (!options_.config.experimental().disable_output_partition_graphs() ||
         options_.config.graph_options().build_cost_model() > 0) {
       item->graph = std::move(partition_graph);
@@ -1551,9 +1551,9 @@ Status DirectSession::GetOrCreateExecutors(
   callable_options.mutable_run_options()
       ->mutable_experimental()
       ->set_collective_graph_key(run_state_args->collective_graph_key);
-  std::unique_ptr<ExecutorsAndKeys> ek;
+  std::unique_ptr<ExecutorsAndKeys> ek; // 包含生成的子图(graph list),(executor list),(funciton list) 
   std::unique_ptr<FunctionInfo> func_info;
-  TF_RETURN_IF_ERROR(
+  TF_RETURN_IF_ERROR(// 重点函数***
       CreateExecutors(callable_options, &ek, &func_info, run_state_args));
 
   // Reacquire the lock, try to insert into the map.
@@ -1604,7 +1604,7 @@ Status DirectSession::CreateGraphs(
         &temp_exec_state_holder, &client_graph));
     execution_state = temp_exec_state_holder.get();
   } else {
-    execution_state = execution_state_.get();
+    execution_state = execution_state_.get(); // 默认应该走到这里，内部也会调用PruneGraph
     TF_RETURN_IF_ERROR(
         execution_state->BuildGraph(subgraph_options, &client_graph));
   }
@@ -1909,8 +1909,8 @@ class DirectSession::RunCallableCallFrame : public CallFrameInterface {
     CallableHandle handle, const std::vector<Tensor>& feed_tensors,
     std::vector<Tensor>* fetch_tensors, RunMetadata* run_metadata,
     const thread::ThreadPoolOptions& threadpool_options) {
-  TF_RETURN_IF_ERROR(CheckNotClosed());
-  TF_RETURN_IF_ERROR(CheckGraphCreated("RunCallable()"));
+  TF_RETURN_IF_ERROR(CheckNotClosed());// 检查session状态是否正常
+  TF_RETURN_IF_ERROR(CheckGraphCreated("RunCallable()"));// 检查计算图是否构建
   direct_session_runs->GetCell()->IncrementBy(1);
 
   // Check if we already have an executor for these arguments.

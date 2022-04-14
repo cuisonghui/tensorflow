@@ -108,13 +108,13 @@ GraphExecutionState::~GraphExecutionState() {
       TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));
     }
     *out_state = std::move(ret);
-  } else {
+  } else { // 默认走这个
     auto ret = absl::WrapUnique(
-        new GraphExecutionState(nullptr, std::move(flib_def), options));
-    auto base_graph = absl::make_unique<Graph>(OpRegistry::Global());
+        new GraphExecutionState(nullptr, std::move(flib_def), options)); // new 
+    auto base_graph = absl::make_unique<Graph>(OpRegistry::Global());// new graph (base_graph)
     TF_RETURN_IF_ERROR(
-        ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));
-    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));
+        ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));// graph_def --> graph
+    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));// 使用graph初始化GraphExecutionState
     *out_state = std::move(ret);
   }
   return Status::OK();

@@ -469,8 +469,8 @@ void ExecutorState<PropagatorStateType>::RunAsync(Executor::DoneCallback done) {
   }
 
   // Initialize the ready queue.
-  ready.reserve(immutable_state_.root_nodes().size());
-  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);
+  ready.reserve(immutable_state_.root_nodes().size()); // 初始入度为0的节点。
+  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);// root_nodes传入ready
   num_outstanding_ops_ = ready.size();
   if (ready.empty()) {
     delete this;
@@ -1164,7 +1164,7 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
     if (inline_ready == nullptr) {
       // Schedule to run all the ready ops in thread pool.
       for (auto& tagged_node : *ready) {
-        RunTask([=]() { Process(tagged_node, scheduled_nsec); });
+        RunTask([=]() { Process(tagged_node, scheduled_nsec); }); // 并行执行,注意和上面的区别,RunTask中执行runner_，这种设计让并行和串行能进行代码统一。
       }
     } else {
       for (auto& tagged_node : *ready) {
@@ -1331,9 +1331,9 @@ void ExecutorState<PropagatorStateType>::Finish() {
     });
   }
 }
-
+// PropagatorState support"dead tensors", "Switch" and "Merge" nodes, and cycles in the graph
 void ExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
-  if (immutable_state_.requires_control_flow_support()) {
+  if (immutable_state_.requires_control_flow_support()) { // ImmutableExecutorState::Initialize函数会scan graph中的所有node，如果判断有控制边类型的node，就设置该状态。
     (new ExecutorState<PropagatorState>(args, immutable_state_, &kernel_stats_))
         ->RunAsync(std::move(done));
   } else {
