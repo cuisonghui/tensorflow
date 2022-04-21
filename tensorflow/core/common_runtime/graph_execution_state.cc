@@ -89,7 +89,7 @@ GraphExecutionState::~GraphExecutionState() {
   auto flib_def = absl::make_unique<FunctionLibraryDefinition>(
       OpRegistry::Global(), graph_def.library());
 
-  TF_RETURN_IF_ERROR(AddDefaultAttrsToGraphDef(&graph_def, *flib_def, 0));
+  TF_RETURN_IF_ERROR(AddDefaultAttrsToGraphDef(&graph_def, *flib_def, 0));// 添加op默认的属性到graph_def的node def中。
 
   if (options.session_options->config.graph_options().place_pruned_graph() ||
       !options.session_options->config.experimental()
@@ -113,8 +113,8 @@ GraphExecutionState::~GraphExecutionState() {
         new GraphExecutionState(nullptr, std::move(flib_def), options)); // new 
     auto base_graph = absl::make_unique<Graph>(OpRegistry::Global());// new graph (base_graph)
     TF_RETURN_IF_ERROR(
-        ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));// graph_def --> graph
-    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));// 使用graph初始化GraphExecutionState
+        ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));// 转换 graph_def --> graph
+    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));// 使用graph初始化GraphExecutionState，并且执行部分op编排工作
     *out_state = std::move(ret);
   }
   return Status::OK();
@@ -583,7 +583,7 @@ Status GraphExecutionState::PruneGraph(
   std::vector<string> target_node_names(
       options.callable_options.target().begin(),
       options.callable_options.target().end());
-  TF_RETURN_IF_ERROR(subgraph::RewriteGraphForExecution(
+  TF_RETURN_IF_ERROR(subgraph::RewriteGraphForExecution( // 剪枝，根据输入输出feed fetch，对graph进行增加节点或删除节点等操作(send/recv,arg/reval等)。通过RewriteGraphForExecution()方法
       graph, feed_rewrites, fetch_rewrites, target_node_names,
       out_rewrite_metadata));
 
@@ -597,10 +597,10 @@ Status GraphExecutionState::PruneGraph(
 }
 
 Status GraphExecutionState::InitBaseGraph(std::unique_ptr<Graph>&& new_graph) {
-  // Save stateful placements before placing.
+  // Save stateful placements before placing. // 恢复有状态的节点
   RestoreStatefulNodes(new_graph.get());
 
-  GraphOptimizationPassOptions optimization_options;
+  GraphOptimizationPassOptions optimization_options;// 构造优化器的选项 optimization_options
   optimization_options.session_handle = session_handle_;
   optimization_options.session_options = session_options_;
   optimization_options.graph = &new_graph;
@@ -616,7 +616,7 @@ Status GraphExecutionState::InitBaseGraph(std::unique_ptr<Graph>&& new_graph) {
                     session_options_->config.allow_soft_placement(),
                 session_options_ != nullptr &&
                     session_options_->config.log_device_placement());
-  // TODO(mrry): Consider making the Placer cancellable.
+  // TODO(mrry): Consider making the Placer cancellable. // plaer执行op编排
   TF_RETURN_IF_ERROR(placer.Run());
 
   TF_RETURN_IF_ERROR(OptimizationPassRegistry::Global()->RunGrouping(
@@ -797,7 +797,7 @@ Status GraphExecutionState::OptimizeGraph(
     GraphDef new_graph;
     TF_RETURN_IF_ERROR(
         grappler::RunMetaOptimizer(std::move(item), session_options_->config,
-                                   cpu_device, &cluster, &new_graph));
+                                   cpu_device, &cluster, &new_graph)); // 这个优化，目前不知道功能是什么 todo https://www.twblogs.net/a/5eee7c989e3cceb6cd3e0e88
 
     // Merge optimized graph function library with an original library.
     // Optimized graph might have new functions specialized for it's
@@ -853,7 +853,7 @@ Status GraphExecutionState::BuildGraph(const BuildGraphOptions& options,
   std::unique_ptr<Graph> optimized_graph;
   std::unique_ptr<FunctionLibraryDefinition> optimized_flib;
 
-  Status s = OptimizeGraph(options, &optimized_graph, &optimized_flib);
+  Status s = OptimizeGraph(options, &optimized_graph, &optimized_flib); // 1. 对graph中进行优化，例如feed节点 type推断/shape推断 2. Validate that the feeds and fetches are valid. 3 进行OptimizeGraph优化*
   if (!s.ok()) {
     VLOG(2) << "Grappler optimization failed. Error: " << s.error_message();
     // Simply copy the original graph and the function library if we couldn't
@@ -867,7 +867,7 @@ Status GraphExecutionState::BuildGraph(const BuildGraphOptions& options,
   if (session_options_ == nullptr ||
       !session_options_->config.graph_options().place_pruned_graph()) {
     TF_RETURN_IF_ERROR(
-        PruneGraph(options, optimized_graph.get(), &rewrite_metadata));
+        PruneGraph(options, optimized_graph.get(), &rewrite_metadata));// 添加节点send/recv等节点，剪枝
   } else {
     // This GraphExecutionState represents a graph that was
     // pruned when this was constructed, so we copy the metadata from
@@ -942,7 +942,7 @@ Status GraphExecutionState::BuildGraph(const BuildGraphOptions& options,
   std::unique_ptr<ClientGraph> dense_copy(
       new ClientGraph(std::move(optimized_flib), rewrite_metadata.feed_types,
                       rewrite_metadata.fetch_types, collective_graph_key));
-  CopyGraph(*optimized_graph, &dense_copy->graph);
+  CopyGraph(*optimized_graph, &dense_copy->graph); // 生成client graph
 
   // TODO(vrv): We should check invariants of the graph here.
   metrics::UpdateGraphBuildTime(Env::Default()->NowMicros() - start_time_usecs);

@@ -219,7 +219,7 @@ bool PruneForReverseReachability(Graph* g,
                                  std::unordered_set<const Node*> start) {
   // Compute set of nodes that we need to traverse in order to reach
   // the nodes in "start" by performing a breadth-first search from those
-  // nodes, and accumulating the visited nodes.
+  // nodes, and accumulating the visited nodes. // 按照BFS广度优先算法，从输出节点开始，反向搜索节点的依赖关系
   std::vector<bool> visited(g->num_node_ids());
   for (auto node : start) {
     visited[node->id()] = true;
@@ -237,7 +237,7 @@ bool PruneForReverseReachability(Graph* g,
     }
   }
 
-  // Make a pass over the graph to remove nodes not in "visited".
+  // Make a pass over the graph to remove nodes not in "visited". // 删除不在"visited"列表中的节点，说明最小依赖子图不依赖此节点
   bool any_removed = false;
   for (int i = 0; i < visited.size(); ++i) {
     if (!visited[i]) {

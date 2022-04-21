@@ -470,7 +470,7 @@ void ExecutorState<PropagatorStateType>::RunAsync(Executor::DoneCallback done) {
 
   // Initialize the ready queue.
   ready.reserve(immutable_state_.root_nodes().size()); // 初始入度为0的节点。
-  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);// root_nodes传入ready
+  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);// root_nodes传入ready  // PropagatorState / SimplePropagatorState
   num_outstanding_ops_ = ready.size();
   if (ready.empty()) {
     delete this;
@@ -691,7 +691,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
     params.device = device;
   }
   params.log_memory = log_memory_;
-  params.rendezvous = rendezvous_;
+  params.rendezvous = rendezvous_; // 最终传入到rendezvous(DirectSession::RunInternal中生成)的OpKernelContext::Params中，这样在sendop或者recvop中就可以调用。这两个op在图分裂优化时，会插入。
   params.collective_executor = collective_executor_;
   params.session_state = session_state_;
   params.session_handle = session_handle_;
@@ -747,7 +747,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
 
     params.track_allocations = false;
     stats = nullptr;
-    if (stats_collector_ && !tagged_node.get_is_dead()) {
+    if (stats_collector_ && !tagged_node.get_is_dead()) { // todo
       stats = stats_collector_->CreateNodeExecStats(&item.kernel->def());
       // Track allocations if and only if we are collecting statistics, and
       // `stats` object is expecting allocations to be tracked.
@@ -763,7 +763,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
               << " device: " << device->name();
     }
 
-    Entry* first_input = propagator_.GetInputTensors(tagged_node);
+    Entry* first_input = propagator_.GetInputTensors(tagged_node); // *定位到此node的input起始的entry(tensor wrapper)
 
     // Only execute this node if it is not dead or it is a send/recv
     // transfer node. For transfer nodes, we need to propagate the "dead"
@@ -824,7 +824,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
       propagator_.MaybeMarkCompleted(tagged_node);
       // Propagates outputs.
       if (s.ok()) {
-        propagator_.PropagateOutputs(tagged_node, &outputs, &ready);
+        propagator_.PropagateOutputs(tagged_node, &outputs, &ready); // ****
       }
 
       // Clear outputs without deallocating the `outputs` vector.
@@ -1337,7 +1337,7 @@ void ExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
     (new ExecutorState<PropagatorState>(args, immutable_state_, &kernel_stats_))
         ->RunAsync(std::move(done));
   } else {
-    (new ExecutorState<SimplePropagatorState>(args, immutable_state_,
+    (new ExecutorState<SimplePropagatorState>(args, immutable_state_,// 每调用一次RunAsync都会new出来一个ExecutorState
                                               &kernel_stats_))
         ->RunAsync(std::move(done));
   }

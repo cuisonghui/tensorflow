@@ -1002,7 +1002,7 @@ Status OptimizeGraph(
   tensorflow::grappler::VirtualCluster cluster(&device_set);
   // TODO(nareshmodi): Consider adding and using the more generic GraphOptions
   // proto (which also contain the OptimizerOptions).
-  TF_RETURN_IF_ERROR(tensorflow::grappler::RunMetaOptimizer(
+  TF_RETURN_IF_ERROR(tensorflow::grappler::RunMetaOptimizer( // 这块会对整个图进行一些全局优化，然后也会进入GraphOptimizer类似的多子优化器进行优化(常量折叠，公共子图等) todo
       std::move(item), config_proto, cpu_device, &cluster, &out_graph));
 
   std::unique_ptr<tensorflow::Graph> optimized_graph(

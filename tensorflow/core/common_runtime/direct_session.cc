@@ -409,7 +409,7 @@ Status DirectSession::Create(GraphDef&& graph) {
       return errors::AlreadyExists(
           "A Graph has already been created for this session.");
     }
-    return ExtendLocked(std::move(graph));
+    return ExtendLocked(std::move(graph)); // 创建一些重要对象，例如execution_state_和flib_def_
   }
   return Status::OK();
 }
@@ -493,13 +493,13 @@ Status DirectSession::DecorateAndPublishGraphForDebug(
 }
 
 Status DirectSession::RunInternal(
-    int64 step_id, const RunOptions& run_options,
+    int64 step_id, const RunOptions& run_options, // step_id 递增的step，每次run都会+1
     CallFrameInterface* call_frame, ExecutorsAndKeys* executors_and_keys,
     RunMetadata* run_metadata,
     const thread::ThreadPoolOptions& threadpool_options) {
   const uint64 start_time_usecs = options_.env->NowMicros();
   const int64 executor_step_count = executors_and_keys->step_count.fetch_add(1);
-  RunState run_state(step_id, &devices_);
+  RunState run_state(step_id, &devices_);// 每个session run的执行状态
   const size_t num_executors = executors_and_keys->items.size();
 
   profiler::TraceMeProducer activity(
@@ -579,9 +579,9 @@ Status DirectSession::RunInternal(
       VLOG(1) << "Executing Session::Run() synchronously!";
       pool = nullptr;
     }
-  } else if (threadpool_options.inter_op_threadpool != nullptr) {
+  } else if (threadpool_options.inter_op_threadpool != nullptr) { // 用户自定义op间的线程池
     threadpool_wrapper = absl::make_unique<thread::ThreadPool>(
-        threadpool_options.inter_op_threadpool);
+        threadpool_options.inter_op_threadpool); // 还有一个intra_op_threadpool
     pool = threadpool_wrapper.get();
   } else {
     if (run_options.inter_op_thread_pool() < -1 ||
@@ -590,10 +590,10 @@ Status DirectSession::RunInternal(
       return errors::InvalidArgument("Invalid inter_op_thread_pool: ",
                                      run_options.inter_op_thread_pool());
     }
-
+    // inter_op_thread_pool定位到使用第几个线程池
     pool = thread_pools_[run_options.inter_op_thread_pool()].first;
   }
-
+  // call_timeout餐胡，可以进行超时控制。
   const int64 call_timeout = run_options.timeout_in_ms() > 0
                                  ? run_options.timeout_in_ms()
                                  : operation_timeout_in_ms_;
@@ -602,28 +602,28 @@ Status DirectSession::RunInternal(
   if (ShouldUseRunHandlerPool(run_options) &&
       run_options.experimental().use_run_handler_pool()) { // tf engine v2 会设置此选项
     VLOG(1) << "Using RunHandler to scheduler inter-op closures.";
-    handler = GetOrCreateRunHandlerPool(options_)->Get(
+    handler = GetOrCreateRunHandlerPool(options_)->Get(// class RunHandler 包含 RunHandler::impl 包含 RunHandlerThreadPool // 真正的线程池执行实体()
         step_id, call_timeout,
-        run_options.experimental().run_handler_pool_options());
+        run_options.experimental().run_handler_pool_options());// 根据num_inter_threads和num_intra_threads生成RunHandlerThreadPool(inner)
     if (!handler) {
       return errors::DeadlineExceeded(
           "Could not obtain RunHandler for request after waiting for ",
           call_timeout, "ms.");
     }
   }
-  auto* handler_ptr = handler.get();
+  auto* handler_ptr = handler.get();// 真正使用
 
-  Executor::Args::Runner default_runner = nullptr;
+  Executor::Args::Runner default_runner = nullptr; // executor的运行器Runner
 
   if (pool == nullptr) {
-    default_runner = [](const Executor::Args::Closure& c) { c(); };
+    default_runner = [](const Executor::Args::Closure& c) { c(); }; // 直接执行Closure
   } else if (handler_ptr != nullptr) {
     default_runner = [handler_ptr](Executor::Args::Closure c) {
-      handler_ptr->ScheduleInterOpClosure(std::move(c));
+      handler_ptr->ScheduleInterOpClosure(std::move(c));// 由RunHandler的ScheduleInterOpClosure调度执行，用户不设置inline_execution_requested(变量中的设置)，并且不设置线程池session_inter_op_thread_pool_size，这应该是tf的全部线程池组件。
     };
   } else {
     default_runner = [pool](Executor::Args::Closure c) {
-      pool->Schedule(std::move(c));
+      pool->Schedule(std::move(c)); // session内部持有的poll,session构造函数中根据options_.config.session_inter_op_thread_pool_size()属性生成多个线程池。 
     };
   }
 
@@ -643,7 +643,7 @@ Status DirectSession::RunInternal(
   args.call_frame = call_frame;
   args.collective_executor =
       (run_state.collective_executor ? run_state.collective_executor->get()
-                                     : nullptr);
+                                     : nullptr); // todo
   args.session_state = &session_state_;
   args.session_handle = session_handle_;
   args.tensor_store = &run_state.tensor_store;
@@ -655,7 +655,7 @@ Status DirectSession::RunInternal(
   const bool do_trace = (run_options.trace_level() > RunOptions::NO_TRACE);
 
   bool update_cost_model = false;
-  if (options_.config.graph_options().build_cost_model() > 0) {
+  if (options_.config.graph_options().build_cost_model() > 0) { // todo
     const int64 build_cost_model_every =
         options_.config.graph_options().build_cost_model();
     const int64 build_cost_model_after =
@@ -667,7 +667,7 @@ Status DirectSession::RunInternal(
     }
   }
   if (do_trace || update_cost_model ||
-      run_options.report_tensor_allocations_upon_oom()) {
+      run_options.report_tensor_allocations_upon_oom()) { // todo
     run_state.collector.reset(
         new StepStatsCollector(run_metadata->mutable_step_stats()));
     args.stats_collector = run_state.collector.get();
@@ -705,7 +705,7 @@ Status DirectSession::RunInternal(
           args->runner = default_runner;
         } else {
           args->runner = [device_thread_pool](Executor::Args::Closure c) {
-            device_thread_pool->Schedule(std::move(c));
+            device_thread_pool->Schedule(std::move(c)); // 如果device配置了device_thread_pool，优先使用，而不使用default_runner.
           };
         }
         if (handler != nullptr) {
@@ -735,14 +735,14 @@ Status DirectSession::RunInternal(
                                 mutex_lock l(run_state.mu);
                                 run_state.status.Update(ret);
                               }
-                              executors_done.Notify();
+                              executors_done.Notify();// 所有线程池计算完毕后，会触发Notify，发送消息。
                             });
 
     for (const auto& item : executors_and_keys->items) {
       set_threadpool_args_for_item(item, &args);
       item.executor->RunAsync(args, barrier->Get());
     }
-
+    // 阻塞，收到所有executor执行完毕的通知
     WaitForNotification(&executors_done, &run_state, &step_cancellation_manager,
                         call_timeout);
     {
@@ -852,7 +852,7 @@ Status DirectSession::Run(const RunOptions& run_options,
   RunStateArgs run_state_args(run_options.debug_options());
   run_state_args.collective_graph_key =
       run_options.experimental().collective_graph_key();
-
+  // 使用input_tensor_names,ouput_names,target_nodes生成唯一的key，判断是否需要重新创建Executor，来进行运行。
   TF_RETURN_IF_ERROR(GetOrCreateExecutors(input_tensor_names, output_names,
                                           target_nodes, &executors_and_keys,
                                           &run_state_args));// 获取Executor，如果已经存在则直接获取，不存在则创建
@@ -862,7 +862,7 @@ Status DirectSession::Run(const RunOptions& run_options,
   }
 
   // Configure a call frame for the step, which we use to feed and
-  // fetch values to and from the executors.
+  // fetch values to and from the executors. 用来输入数据给executor，并从executor中取出数据。
   FunctionCallFrame call_frame(executors_and_keys->input_types,
                                executors_and_keys->output_types);
   gtl::InlinedVector<Tensor, 4> feed_args(inputs.size());
@@ -895,7 +895,7 @@ Status DirectSession::Run(const RunOptions& run_options,
                                  threadpool_options));
 
   // Receive outputs.
-  if (outputs) { // 获取计算图运行结果
+  if (outputs) { // 通过FunctionCallFrame，获取计算图运行结果
     std::vector<Tensor> sorted_outputs;
     const Status s = call_frame.ConsumeRetvals(
         &sorted_outputs, /* allow_dead_tensors = */ false);
@@ -1311,9 +1311,9 @@ Status DirectSession::CreateExecutors(
   ek->callable_options = callable_options;
 
   std::unordered_map<string, std::unique_ptr<Graph>> graphs;
-  TF_RETURN_IF_ERROR(CreateGraphs(// todo
+  TF_RETURN_IF_ERROR(CreateGraphs(
       options, &graphs, &func_info->flib_def, run_state_args, &ek->input_types,
-      &ek->output_types, &ek->collective_graph_key));
+      &ek->output_types, &ek->collective_graph_key)); // 生成的client graph的flib_def复制给func_info->flib_def
 
   if (run_state_args->is_partial_run) {
     ek->graph = std::move(run_state_args->graph);
@@ -1342,7 +1342,7 @@ Status DirectSession::CreateExecutors(
       options_.config.experimental().has_session_metadata()
           ? &options_.config.experimental().session_metadata()
           : nullptr;
-  func_info->proc_flr.reset(new ProcessFunctionLibraryRuntime(
+  func_info->proc_flr.reset(new ProcessFunctionLibraryRuntime( // 使用func_info->flib_def(CreateGraphs中生成)初始化ProcessFunctionLibraryRuntime
       device_mgr_.get(), options_.env, &options_.config, graph_def_version,
       func_info->flib_def.get(), optimizer_opts, thread_pools_[0].first,
       /*parent=*/nullptr, session_metadata,
@@ -1353,7 +1353,7 @@ Status DirectSession::CreateExecutors(
           }}));
 
   GraphOptimizer optimizer(optimizer_opts); // todo
-  for (auto iter = graphs.begin(); iter != graphs.end(); ++iter) {
+  for (auto iter = graphs.begin(); iter != graphs.end(); ++iter) {// 遍历生成的多个partition_graph图。
     const string& partition_name = iter->first;
     std::unique_ptr<Graph>& partition_graph = iter->second;
 

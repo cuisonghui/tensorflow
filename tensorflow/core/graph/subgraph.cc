@@ -192,7 +192,7 @@ Status PruneForTargets(Graph* g, const NameIndex& name_index,
                        const gtl::ArraySlice<string>& target_nodes) {
   string not_found;
   std::unordered_set<const Node*> targets;
-  for (Node* n : fetch_nodes) {
+  for (Node* n : fetch_nodes) { // 1 AddNodeToTargets添加节点到targets中，从输出节点按照BFS反向遍历。
     if (!AddNodeToTargets(n->name(), name_index, &targets)) {
       strings::StrAppend(&not_found, n->name(), " ");
     }
@@ -206,9 +206,9 @@ Status PruneForTargets(Graph* g, const NameIndex& name_index,
     return errors::NotFound("PruneForTargets: Some target nodes not found: ",
                             not_found);
   }
-  PruneForReverseReachability(g, std::move(targets));
+  PruneForReverseReachability(g, std::move(targets)); // 2 剪枝，得到多个最小依赖子图子图
 
-  // Reconnect nodes with no outgoing edges to the sink node
+  // Reconnect nodes with no outgoing edges to the sink node // 修正Source和Sink节点的依赖边，将没有输出边的节点连接到sink node上
   FixupSourceAndSinkEdges(g);
 
   return Status::OK();
@@ -363,7 +363,7 @@ Status RewriteGraphForExecution(
   }
 
   // A separate index mapping name to Node*, for use by FeedInputs,
-  // FetchOutputs, and PruneForTargets
+  // FetchOutputs, and PruneForTargets  //构建节点的name_index，从而快速索引节点。为FeedInputs，FetchOutputs等步骤所使用
   NameIndex name_index;
   name_index.reserve(g->num_nodes());
   for (Node* n : g->nodes()) {
@@ -372,7 +372,7 @@ Status RewriteGraphForExecution(
 
   // Add the feeds.  This may replace nodes in the graph, including the nodes
   // currently listed in "fetch_rewrites".  We pass "name_index" so the index is
-  // kept up to date.
+  // kept up to date. FeedInputs，添加输入节点 输入节点的数据来源于session.run()时的feed列表。
   if (!feed_rewrites.empty()) {
     TF_RETURN_IF_ERROR(
         FeedInputs(g, feed_rewrites, &name_index, &out_metadata->feed_types));
@@ -380,13 +380,13 @@ Status RewriteGraphForExecution(
 
   // Add the fetch nodes, also updating "name_index".
   std::vector<Node*> fetch_nodes;
-  if (!fetch_rewrites.empty()) {
+  if (!fetch_rewrites.empty()) { // FetchOutputs，添加输出节点,输出节点在session.run()时通过fetches所给出
     TF_RETURN_IF_ERROR(FetchOutputs(g, fetch_rewrites, &name_index,
                                     &fetch_nodes, &out_metadata->fetch_types));
   }
 
   // Prune the graph to only compute what is needed for the fetch nodes and the
-  // target nodes.
+  // target nodes.// 4 剪枝，形成若干最小依赖子图
   if (!fetch_nodes.empty() || !target_node_names.empty()) {
     TF_RETURN_IF_ERROR(
         PruneForTargets(g, name_index, fetch_nodes, target_node_names));

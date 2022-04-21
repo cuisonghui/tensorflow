@@ -120,7 +120,7 @@ class DirectSession : public Session {
 
   ::tensorflow::Status MakeCallable(const CallableOptions& callable_options,
                                     CallableHandle* out_handle) override;
-
+  // Invokes the subgraph named by handle with the given options and input tensors
   ::tensorflow::Status RunCallable(CallableHandle handle,
                                    const std::vector<Tensor>& feed_tensors,
                                    std::vector<Tensor>* fetch_tensors,
@@ -374,7 +374,7 @@ class DirectSession : public Session {
     ~Callable();
   };
   mutex callables_lock_;
-  int64 next_callable_handle_ TF_GUARDED_BY(callables_lock_) = 0;
+  int64 next_callable_handle_ TF_GUARDED_BY(callables_lock_) = 0; // 维护callable handle，直接上就是id号++
   std::unordered_map<int64, Callable> callables_ TF_GUARDED_BY(callables_lock_);
 
   // Holds mappings from handle to partial run state.
