@@ -114,7 +114,7 @@ GraphExecutionState::~GraphExecutionState() {
     auto base_graph = absl::make_unique<Graph>(OpRegistry::Global());// new graph (base_graph)
     TF_RETURN_IF_ERROR(
         ConvertGraphDefToGraph({}, std::move(graph_def), base_graph.get()));// 转换 graph_def --> graph
-    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));// 使用graph初始化GraphExecutionState，并且执行部分op编排工作
+    TF_RETURN_IF_ERROR(ret->InitBaseGraph(std::move(base_graph)));// 使用graph初始化GraphExecutionState，并且执行op编排工作
     *out_state = std::move(ret);
   }
   return Status::OK();

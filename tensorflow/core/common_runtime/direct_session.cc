@@ -573,7 +573,7 @@ Status DirectSession::RunInternal(
   if (inline_execution_requested) { // 目前广告侧推理使用此方式
     // We allow using the caller thread only when having a single executor
     // specified.
-    if (executors_and_keys->items.size() > 1) { // 什么情况下items会大于1? todo
+    if (executors_and_keys->items.size() > 1) { // 什么情况下items会大于1? --> 分裂成多个图
       pool = thread_pools_[0].first;
     } else {
       VLOG(1) << "Executing Session::Run() synchronously!";
@@ -623,7 +623,7 @@ Status DirectSession::RunInternal(
     };
   } else {
     default_runner = [pool](Executor::Args::Closure c) {
-      pool->Schedule(std::move(c)); // session内部持有的poll,session构造函数中根据options_.config.session_inter_op_thread_pool_size()属性生成多个线程池。 
+      pool->Schedule(std::move(c)); // session内部持有的pool,session构造函数中根据options_.config.session_inter_op_thread_pool_size()属性生成多个线程池。 
     };
   }
 
@@ -715,7 +715,7 @@ Status DirectSession::RunInternal(
       };
 
   if (can_execute_synchronously) {
-    PrivateIntraProcessRendezvous rendezvous(device_mgr_.get());
+    PrivateIntraProcessRendezvous rendezvous(device_mgr_.get()); // 默认会走这里(待确认)
     args.rendezvous = &rendezvous;
 
     const auto& item = executors_and_keys->items[0];
@@ -723,7 +723,7 @@ Status DirectSession::RunInternal(
     run_status = item.executor->Run(args);
   } else {
     core::RefCountPtr<RefCountedIntraProcessRendezvous> rendezvous(
-        new RefCountedIntraProcessRendezvous(device_mgr_.get()));
+        new RefCountedIntraProcessRendezvous(device_mgr_.get()));// using IntraProcessRendezvous = RefCountedIntraProcessRendezvous;
     args.rendezvous = rendezvous.get();
 
     // `barrier` will delete itself after the final executor finishes.
@@ -744,7 +744,7 @@ Status DirectSession::RunInternal(
     }
     // 阻塞，收到所有executor执行完毕的通知
     WaitForNotification(&executors_done, &run_state, &step_cancellation_manager,
-                        call_timeout);
+                        call_timeout);// ExecutorBarrier中num_executors个executors都调用WhenDone，会调用executors_done.Notify()，WaitForNotification等到notify，解除阻塞或者超时
     {
       tf_shared_lock l(run_state.mu);
       run_status = run_state.status;
@@ -1348,11 +1348,11 @@ Status DirectSession::CreateExecutors(
       /*parent=*/nullptr, session_metadata,
       Rendezvous::Factory{
           [](const int64, const DeviceMgr* device_mgr, Rendezvous** r) {
-            *r = new IntraProcessRendezvous(device_mgr);// 进程内的 Send 和 Recv 节点通过 IntraProcessRendezvous 实现数据交换(?)
-            return Status::OK();
+            *r = new IntraProcessRendezvous(device_mgr);// CreateRendezvous()函数会使用此闭包，作为Rendezvous的创建。
+            return Status::OK();// 进程内的 Send 和 Recv 节点通过 IntraProcessRendezvous 实现数据交换，// (这段话待删除，写的应该不对)后续op kernal(send/recv op)中会使用该function(应该不是，excutor在run会重新new一个)
           }}));
 
-  GraphOptimizer optimizer(optimizer_opts); // todo
+  GraphOptimizer optimizer(optimizer_opts);
   for (auto iter = graphs.begin(); iter != graphs.end(); ++iter) {// 遍历生成的多个partition_graph图。
     const string& partition_name = iter->first;
     std::unique_ptr<Graph>& partition_graph = iter->second;
@@ -1366,7 +1366,7 @@ Status DirectSession::CreateExecutors(
     if (lib == nullptr) {
       return errors::Internal("Could not find device: ", partition_name);
     }
-    item->flib = lib;
+    item->flib = lib; // 每个子图分别持有的FunctionLibraryRuntime,Executor,Device,Graph，都为指针。
 
     LocalExecutorParams params;
     params.device = device;

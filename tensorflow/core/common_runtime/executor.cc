@@ -456,7 +456,7 @@ void ExecutorState<PropagatorStateType>::RunTask(Closure&& c) {
 
 template <class PropagatorStateType>
 void ExecutorState<PropagatorStateType>::RunAsync(Executor::DoneCallback done) {
-  TaggedNodeSeq ready;
+  TaggedNodeSeq ready; // 在SimplePropagatorState中就是个vector
 
   // Ask the device to fill in the device context map.
   Device* device = immutable_state_.params().device;
@@ -470,7 +470,7 @@ void ExecutorState<PropagatorStateType>::RunAsync(Executor::DoneCallback done) {
 
   // Initialize the ready queue.
   ready.reserve(immutable_state_.root_nodes().size()); // 初始入度为0的节点。
-  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);// root_nodes传入ready  // PropagatorState / SimplePropagatorState
+  propagator_.ActivateRoots(immutable_state_.root_nodes(), &ready);// root_nodes传入ready中  // PropagatorState / SimplePropagatorState
   num_outstanding_ops_ = ready.size();
   if (ready.empty()) {
     delete this;
@@ -674,8 +674,8 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
       profiler::ContextType::kTfExecutor, step_id_,
       profiler::TraceMeLevel::kInfo);
   WithContext wc(context_);
-  TaggedNodeSeq ready;
-  TaggedNodeReadyQueue inline_ready;
+  TaggedNodeSeq ready; // 存入后续入度为0的node.
+  TaggedNodeReadyQueue inline_ready;// 会把ready中的node放入inline_ready中执行。
 
   // Parameters passed to OpKernel::Compute.
   TensorValueVec inputs;
@@ -737,7 +737,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
 
   bool completed = false;
   inline_ready.push_back(tagged_node);
-  while (!inline_ready.empty()) {
+  while (!inline_ready.empty()) { // 后续入度为0的节点，也会放入到inline_ready中，在这个循环中继续执行
     tagged_node = inline_ready.front();
     inline_ready.pop_front();
     const NodeItem& item = tagged_node.get_node_item();
@@ -801,7 +801,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
       params.outputs_required_array = item.outputs_required.get();
 
       if (item.kernel_is_async) {
-        ProcessAsync(item, params, tagged_node, first_input, stats);
+        ProcessAsync(item, params, tagged_node, first_input, stats);// 内部会执行PropagateOutputs
         launched_asynchronously = true;
       } else {
         s = ProcessSync(item, &params, &outputs, stats);
@@ -824,7 +824,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
       propagator_.MaybeMarkCompleted(tagged_node);
       // Propagates outputs.
       if (s.ok()) {
-        propagator_.PropagateOutputs(tagged_node, &outputs, &ready); // ****
+        propagator_.PropagateOutputs(tagged_node, &outputs, &ready); // **** 检查更新后入度为0的node，入ready中
       }
 
       // Clear outputs without deallocating the `outputs` vector.
@@ -1143,7 +1143,7 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
     scheduled_nsec = nodestats::NowInNsec();
   }
 
-  if (run_all_kernels_inline_) {
+  if (run_all_kernels_inline_) { // 目前广告推理会走此
     if (inline_ready == nullptr) {
       // Schedule all ready kernels from a single closure. This ensure that,
       // regardless of the `runner_` implementation, all kernels will run
@@ -1173,11 +1173,11 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
           // Inline this inexpensive node.
           inline_ready->push_back(tagged_node);
         } else {
-          if (curr_expensive_node) {
+          if (curr_expensive_node) { // expensive 节点，新开线程
             // Dispatch to another thread since there is plenty of work to
             // do for this thread.
             RunTask(std::bind(&ExecutorState::Process, this,
-                              *curr_expensive_node, scheduled_nsec));
+                              *curr_expensive_node, scheduled_nsec));// curr_expensive_node节点直接调度执行，而不放入inline_ready中，让上层执行
           }
           curr_expensive_node = &tagged_node;
         }
