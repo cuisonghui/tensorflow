@@ -90,7 +90,7 @@ void SimplePropagatorState::PropagateOutputs(const TaggedNode& tagged_node,
     }
 
     int32 previous_num_pending =
-        pending_[dst_id].fetch_sub(1, std::memory_order_release);
+        pending_[dst_id].fetch_sub(1, std::memory_order_release); // 边的消费node的pending减1
     if (previous_num_pending == 1) ready->emplace_back(&gview.node_ref(dst_id));
   }
 

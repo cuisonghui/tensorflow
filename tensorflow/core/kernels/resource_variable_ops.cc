@@ -152,7 +152,7 @@ void ReadVariableOp::Compute(OpKernelContext* ctx) {
         errors::InvalidArgument(
             "Trying to read variable with wrong dtype. Expected ",
             DataTypeString(dtype_), " got ", DataTypeString(t->dtype())));
-    ctx->set_output(0, *t);
+    ctx->set_output(0, *t); // 读时不进行复制
   } else {
     OP_REQUIRES_OK(ctx, CopyVariable(0, ctx, t));
   }

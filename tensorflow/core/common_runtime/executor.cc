@@ -138,7 +138,7 @@ class ExecutorImpl : public Executor {
   explicit ExecutorImpl(const LocalExecutorParams& p) : immutable_state_(p) {}
 
   Status Initialize(const Graph& graph) {
-    TF_RETURN_IF_ERROR(immutable_state_.Initialize(graph));
+    TF_RETURN_IF_ERROR(immutable_state_.Initialize(graph)); // 初始化一些不改变的图运行所需的状态信息
     kernel_stats_.Initialize(immutable_state_.graph_view());
     return Status::OK();
   }
@@ -684,7 +684,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
   OpKernelContext::Params params;
   params.step_id = step_id_;
   // Override device's threadpool if user provides an intra_op_threadpool
-  Device* device = immutable_state_.params().device;
+  Device* device = immutable_state_.params().device; // immutable_state_对象在构造executor时构建完成(ImmutableExecutorState::Initialize)。
   if (user_device_) {
     params.device = user_device_.get();
   } else {
@@ -763,7 +763,7 @@ void ExecutorState<PropagatorStateType>::Process(TaggedNode tagged_node,
               << " device: " << device->name();
     }
 
-    Entry* first_input = propagator_.GetInputTensors(tagged_node); // *定位到此node的input起始的entry(tensor wrapper)
+    Entry* first_input = propagator_.GetInputTensors(tagged_node); // *定位到此node的input entry(tensor wrapper) array的起始地址。
 
     // Only execute this node if it is not dead or it is a send/recv
     // transfer node. For transfer nodes, we need to propagate the "dead"
@@ -1077,7 +1077,7 @@ bool ExecutorState<PropagatorStateType>::NodeDone(
       }
 
       // Schedule the ready nodes in 'ready'.
-      ScheduleReady(ready, inline_ready);
+      ScheduleReady(ready, inline_ready); // 1 一种情况，如果inline_ready isnot null，就把节点放入inline_ready中，有上层while循环调度运行
 
       return false;
     }
@@ -1144,12 +1144,12 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
   }
 
   if (run_all_kernels_inline_) { // 目前广告推理会走此
-    if (inline_ready == nullptr) {
+    if (inline_ready == nullptr) {// 可以看出inline_ready和ready在执行节点上，是互斥的，inline_ready优先级高，inline_ready不为null，ready中的节点需要放入inline_ready中，由上层调用放遍历inline_ready执行node.
       // Schedule all ready kernels from a single closure. This ensure that,
       // regardless of the `runner_` implementation, all kernels will run
       // sequentially on the same thread, and thread wakeup overhead and
       // executor mutex contention will be minimized.
-      RunTask([this, ready = std::move(*ready), scheduled_nsec]() {
+      RunTask([this, ready = std::move(*ready), scheduled_nsec]() { // 单线程执行ready数组中节点
         for (auto& tagged_node : ready) {
           Process(tagged_node, scheduled_nsec);
         }
@@ -1163,7 +1163,7 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
     const TaggedNode* curr_expensive_node = nullptr;
     if (inline_ready == nullptr) {
       // Schedule to run all the ready ops in thread pool.
-      for (auto& tagged_node : *ready) {
+      for (auto& tagged_node : *ready) { // 多线程并行执行
         RunTask([=]() { Process(tagged_node, scheduled_nsec); }); // 并行执行,注意和上面的区别,RunTask中执行runner_，这种设计让并行和串行能进行代码统一。
       }
     } else {
@@ -1173,17 +1173,17 @@ void ExecutorState<PropagatorStateType>::ScheduleReady(
           // Inline this inexpensive node.
           inline_ready->push_back(tagged_node);
         } else {
-          if (curr_expensive_node) { // expensive 节点，新开线程
+          if (curr_expensive_node) { // expensive 节点，新开线程高优执行。
             // Dispatch to another thread since there is plenty of work to
             // do for this thread.
             RunTask(std::bind(&ExecutorState::Process, this,
                               *curr_expensive_node, scheduled_nsec));// curr_expensive_node节点直接调度执行，而不放入inline_ready中，让上层执行
           }
-          curr_expensive_node = &tagged_node;
+          curr_expensive_node = &tagged_node; // 重新赋值新的expensive node，下次循环调用
         }
       }
     }
-    if (curr_expensive_node) {
+    if (curr_expensive_node) { // 未处理的expensive node
       if (inline_ready->empty()) {
         inline_ready->push_back(*curr_expensive_node);
       } else {

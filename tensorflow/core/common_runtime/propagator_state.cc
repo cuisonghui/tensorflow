@@ -140,13 +140,13 @@ void PropagatorState::PropagateOutputs(const TaggedNode& tagged_node,
     } else {
       if (input_iter->iter_num == input_frame->iteration_count &&
           input_frame->num_outstanding_iterations ==
-              input_frame->max_parallel_iterations) {
+              input_frame->max_parallel_iterations) { // num_outstanding_iterations == max_parallel_iterations 表示当前运行的iterations已经到上限。
         // Reached the maximum for parallel iterations.
         input_frame->next_iter_roots.push_back({item, (*outputs)[0]});
         output_frame = nullptr;
       } else {
         // If this is a new iteration, start it.
-        if (input_iter->iter_num == input_frame->iteration_count) {
+        if (input_iter->iter_num == input_frame->iteration_count) { // iteration_count 表示 The highest iteration number we have reached so far in this frame.
           output_iter = input_frame->IncrementIteration(ready);
         } else {
           output_iter = input_frame->GetIteration(input_iter->iter_num + 1);

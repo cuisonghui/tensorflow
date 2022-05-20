@@ -593,7 +593,7 @@ Status DirectSession::RunInternal(
     // inter_op_thread_pool定位到使用第几个线程池
     pool = thread_pools_[run_options.inter_op_thread_pool()].first;
   }
-  // call_timeout餐胡，可以进行超时控制。
+  // call_timeout，可以进行超时控制。
   const int64 call_timeout = run_options.timeout_in_ms() > 0
                                  ? run_options.timeout_in_ms()
                                  : operation_timeout_in_ms_;
@@ -715,7 +715,7 @@ Status DirectSession::RunInternal(
       };
 
   if (can_execute_synchronously) {
-    PrivateIntraProcessRendezvous rendezvous(device_mgr_.get()); // 默认会走这里(待确认)
+    PrivateIntraProcessRendezvous rendezvous(device_mgr_.get()); // 默认会走这里
     args.rendezvous = &rendezvous;
 
     const auto& item = executors_and_keys->items[0];
@@ -1590,7 +1590,7 @@ Status DirectSession::CreateGraphs(
 
   std::unique_ptr<GraphExecutionState> temp_exec_state_holder;
   GraphExecutionState* execution_state = nullptr;
-  if (options_.config.graph_options().place_pruned_graph()) {
+  if (options_.config.graph_options().place_pruned_graph()) { // 这块还不清楚，待研究
     // Because we are placing pruned graphs, we need to create a
     // new GraphExecutionState for every new unseen graph,
     // and then place it.

@@ -797,7 +797,7 @@ Status GraphExecutionState::OptimizeGraph(
     GraphDef new_graph;
     TF_RETURN_IF_ERROR(
         grappler::RunMetaOptimizer(std::move(item), session_options_->config,
-                                   cpu_device, &cluster, &new_graph)); // 这个优化，目前不知道功能是什么 todo https://www.twblogs.net/a/5eee7c989e3cceb6cd3e0e88
+                                   cpu_device, &cluster, &new_graph)); // 这个优化作用于graphdef全局优化,也包括常量折叠等一些列优化  https://www.twblogs.net/a/5eee7c989e3cceb6cd3e0e88
 
     // Merge optimized graph function library with an original library.
     // Optimized graph might have new functions specialized for it's

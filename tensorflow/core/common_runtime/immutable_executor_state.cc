@@ -82,7 +82,7 @@ ImmutableExecutorState::FrameInfo* ImmutableExecutorState::EnsureFrameInfo(
 }
 
 Status ImmutableExecutorState::Initialize(const Graph& graph) {
-  TF_RETURN_IF_ERROR(gview_.Initialize(&graph));
+  TF_RETURN_IF_ERROR(gview_.Initialize(&graph)); // 通过graph的node生成(new)NodeItem
 
   // Build the information about frames in this subgraph.
   ControlFlowInfo cf_info;
@@ -123,13 +123,13 @@ Status ImmutableExecutorState::Initialize(const Graph& graph) {
     const string& frame_name = cf_info.frame_names[id];
     FrameInfo* frame_info = EnsureFrameInfo(frame_name);
 
-    NodeItem* item = gview_.node(id);
+    NodeItem* item = gview_.node(id); // gview_提供通过 node id 快速获取NodeItem的能力 
     item->node_id = id;
 
-    item->input_start = frame_info->total_inputs;
+    item->input_start = frame_info->total_inputs; // 当执行node时，可以通过此索引快速定位到node对应的tensor(entry)
     frame_info->total_inputs += n->num_inputs();
 
-    Status s = params_.create_kernel(n->properties(), &item->kernel);
+    Status s = params_.create_kernel(n->properties(), &item->kernel);// 创建kernel
     if (!s.ok()) {
       item->kernel = nullptr;
       s = AttachDef(s, *n);

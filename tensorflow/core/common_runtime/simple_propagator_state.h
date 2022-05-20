@@ -124,7 +124,7 @@ class SimplePropagatorState {
     // object access that will establish the happens-before relation between
     // the write to input_tensors_ in `PropagateOutputs()` and the read in
     // `PrepareInputs()`.
-    CHECK_EQ(pending_[tagged_node.node_item->node_id], 0);
+    CHECK_EQ(pending_[tagged_node.node_item->node_id], 0); //断言此node 入度为0?
 #endif  // defined(THREAD_SANITIZER) || defined(DEBUG)
     return input_tensors_.data() + tagged_node.node_item->input_start;
   }
